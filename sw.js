@@ -2,7 +2,7 @@
 //  Service Worker – speichert die App, damit sie auch
 //  offline startet. Bei Änderungen VERSION erhöhen!
 // =====================================================
-const VERSION = "maennli-v2";
+const VERSION = "maennli-v3";
 const DATEIEN = [
   "./",
   "index.html",
@@ -30,15 +30,30 @@ self.addEventListener("activate", (e) => {
 });
 
 // Anfragen abfangen
+// WICHTIG: Immer zuerst aus dem Internet laden, nur offline aus dem Speicher.
+// So zeigt Live Server (127.0.0.1:5500) auch andere Projekte richtig an
+// und nicht immer die gespeicherte Wetter-App.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
-  // Wetterdaten: immer zuerst aus dem Internet (sie sollen aktuell sein).
-  // Ohne Internet übernimmt app.js mit den gespeicherten Daten.
-  if (url.hostname.includes("open-meteo.com")) return;
+  // Nur normale Anfragen an die eigene Adresse behandeln.
+  // Wetterdaten (open-meteo.com) übernimmt app.js selbst.
+  if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
 
-  // App-Dateien: zuerst aus dem Cache (schnell + offline)
   e.respondWith(
-    caches.match(e.request).then((treffer) => treffer || fetch(e.request))
+    fetch(e.request)
+      .then((antwort) => {
+        // Eigene App-Dateien im Speicher aktualisieren (für den Offline-Modus)
+        const pfad = url.pathname.split("/").pop() || "./";
+        if (antwort.ok && DATEIEN.some((d) => d.endsWith(pfad))) {
+          const kopie = antwort.clone();
+          caches.open(VERSION).then((cache) => cache.put(e.request, kopie));
+        }
+        return antwort;
+      })
+      .catch(() =>
+        // Kein Internet: aus dem Speicher nehmen
+        caches.match(e.request).then((treffer) => treffer || caches.match("index.html"))
+      )
   );
 });
